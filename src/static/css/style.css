@@ -1,0 +1,153 @@
+/*! CSS reset from benfrain/app-reset */
+*,:after,:before{box-sizing:inherit}html{box-sizing:border-box}
+*{user-select:none;-webkit-tap-highlight-color:rgba(255,255,255,0);-webkit-tap-highlight-color:transparent}
+[contenteditable],input[type]{user-select:text}body,h1,h2,h3,h4,h5,h6,p{margin:0;font-size:1rem;font-weight:400}
+a{text-decoration:none;color:inherit}b{font-weight:400}em,i{font-style:normal}a:focus,input:focus{outline:0}
+fieldset,input{appearance:none;border:0;padding:0;margin:0;min-width:0;font-size:1rem;font-family:inherit}
+input::-ms-clear{display:none}input[type=number]{-moz-appearance:textfield}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{appearance:none}
+svg{display:inline-flex}img{max-width:100%;display:block}
+
+html {
+  color: #030303;
+  font: caption;
+
+}
+
+a {
+  color: #1f4ba0;
+  text-decoration: underline;
+}
+
+header {
+  padding: 2em;
+}
+
+header .logo {
+  display: block;
+  margin: 0 auto;
+  max-width: 400px;
+  width: 100%;
+}
+
+footer {
+  margin: 4em auto;
+  padding: 2em;
+  text-align: center;
+  max-width: 800px;
+  width: 100%;
+}
+
+footer p {
+  line-height: 1.2em;
+  margin: 0 0 1em 0;
+}
+
+.not-found {
+  margin: 0 auto;
+  max-width: 800px;
+  padding: 2em;
+  text-align: center;
+  width: 100%;
+  color: #FAFAFA;
+}
+
+.not-found h1 {
+  font-size: 3em;
+  font-weight: bold;
+}
+
+.not-found h2 {
+  font-size: 2em;
+  font-weight: bold;
+}
+
+
+.server-test{
+    display: block;
+    width: 33%;
+    margin-left: 33%;
+    position: fixed;
+    bottom: 10px;
+}
+
+.server-test input[type="text"]{
+      border: 1px solid #CCC;
+    padding: 2px 4px;
+    border-radius: 2px;
+    margin-bottom: 5px;
+
+}
+
+.server-test input{
+    width: 100%;
+    display: inline-block;
+}
+
+.server-test button{
+  width: 100%;
+  padding: 4px;
+  outline: none;
+  background: #FAFAFA;
+  border: 1px solid #CCC;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+body{
+  min-height: 100vh;
+  min-width: 100vh;
+  background-image: url("/img/background.jpg");
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+
+.temperature-view{
+  display: block;
+  min-width: 250px;
+  width: 25%;
+  padding: 12px 10px;
+  background: rgba(13, 52, 84, 1);
+  border: 8px solid rgba(0,0,0,0.8);
+  border-radius: 2px;
+  color: rgba(124, 170, 208, 0.7);
+  margin: 0 auto;
+  margin-top: 100px;
+  font-size: 18px;
+}
+
+.temperature-view .temp{
+  float: right;
+}
+
+.burner-status{
+  float: right;
+  transform: rotate(90deg);
+}
+
+.burner-status.on:before{
+  content: "\2039";
+  animation-duration: 2s;
+  animation-name: warming;
+  animation-iteration-count: infinite;
+}
+
+@keyframes warming {
+  0% {
+    content: "\00a0\00a0\00a0";
+
+  }
+
+  33% {
+    content: "\00a0\00a0\2039";
+
+  }
+
+  66% {
+    content:  "\00a0\2039\2039";
+  }
+
+  100% {
+    content:  "\2039\2039\2039";
+  }
+}

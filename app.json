@@ -1,0 +1,13 @@
+{
+  "name": "Palju server",
+  "description": "",
+  "repository": "",
+  "logo": "",
+  "keywords": ["node"],
+  "env": {
+    "PORT": {
+      "description": "The port where the web server will be running",
+      "value": "3000"
+    }
+  }
+}

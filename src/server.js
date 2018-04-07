@@ -48,14 +48,53 @@ function loadHandler() {
 }
 
 
-
-app.get('*', (req, res) => {
+// Returns the heating instances as an array of hashes containing the start and end timestamps
+// [{start: unix_timestamp, end: unix_timestamp}, ...]
+app.get('/instances', (req, res) => {
   let markup = '';
   let status = 200;
+  let paljuData = db.getCollection("palju");
 
-  return res.status(status).render('index', { markup });
+  // Get all data
+  let records = paljuData.chain().find({}).simplesort('timestamp').data();
+  let instances = [];
+  let instance = [];
+
+  // Figure out the instances
+  records = records.map(r => r.timestamp).forEach( (currentValue, index, values) => {
+    if (instance.length > 0){
+      if (currentValue - (60*60*6) < instance[instance.length - 1]){ // Less than 6 hours from last value
+        instance.push(currentValue);
+      } else { // More than 6 hour, consider as a new instance.
+        instances.push(instance);
+        instance = [currentValue]
+      }
+    } else {
+      instance.push(currentValue);
+    } 
+  });
+
+  // Remove instances with less than 30 datapoints to remove some test data. 
+  instances = instances.filter((value, index) => {value.length < 30})
+  const retval = instances.map((value) => { return {start: value.shift(), end: value.pop()}})
+
+  res.setHeader('Content-Type', 'application/json');
+  res.status(status)
+  res.send(JSON.stringify(retval));
 });
 
+
+// Returns the recorded data between the given timestamps
+app.get('/instances/:after/:before', (req, res) => {
+  let markup = '';
+  let status = 200;
+  let paljuData = db.getCollection("palju");
+  let records = paljuData.chain().find({'timestamp': {'$between': [req.params['after'], req.params['before']]}}).simplesort('timestamp').data();
+
+  res.setHeader('Content-Type', 'application/json');
+  res.status(status)
+  res.send(JSON.stringify(stripResultsMetadata(records)));
+});
 
 // start the server
 const port = process.env.PORT || 3000;
@@ -72,10 +111,6 @@ server.listen(port, (err) => {
       Server running on http://localhost:${port} [${env}]
     `);
 });
-
-
-
-
 
 
 wss.on('connection', (ws, req) => {
@@ -164,11 +199,12 @@ setInterval(() => {
 }, 10000);
 
 
+// Function to remove the meta data created by the lokijs from the responses
 export function stripResultsMetadata( results ) {
 
-  const isArray = Array.isArray(results);
+  const isArray = Array.isArray(results); // Check whether array was provided
   
-  if(!isArray) results = [results];
+  if(!isArray) results = [results]; // Convert to array
 
   const records = [];
   
@@ -179,5 +215,5 @@ export function stripResultsMetadata( results ) {
 		delete clean_rec['$loki']
 		records.push( clean_rec )
 	}
-	return isArray ? records : records.pop();
+	return isArray ? records : records.pop(); // Convert to initial
 }

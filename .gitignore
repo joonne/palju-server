@@ -61,3 +61,4 @@ typings/
 .next
 
 .babel_cache
+src/server-es5.js

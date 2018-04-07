@@ -11,7 +11,6 @@ import { App } from './components/App';
 import WebSocket from 'ws';
 import url from 'url';
 
-import Datastore from 'nedb';
 import loki from 'lokijs'
 import lfsa  from 'lokijs/src/loki-fs-structured-adapter'
 
@@ -61,7 +60,7 @@ app.get('/instances', (req, res) => {
   let instance = [];
 
   // Figure out the instances
-  records = records.map(r => r.timestamp).forEach( (currentValue, index, values) => {
+  records.map(r => r.timestamp).forEach( (currentValue, index, values) => {
     if (instance.length > 0){
       if (currentValue - (60*60*6) < instance[instance.length - 1]){ // Less than 6 hours from last value
         instance.push(currentValue);
@@ -73,10 +72,9 @@ app.get('/instances', (req, res) => {
       instance.push(currentValue);
     } 
   });
-
-  // Remove instances with less than 30 datapoints to remove some test data. 
-  instances = instances.filter((value, index) => {value.length < 30})
-  const retval = instances.map((value) => { return {start: value.shift(), end: value.pop()}})
+  instances.push(instance);
+  // Remove instances with less than 100 datapoints to remove some test data. 
+  const retval = instances.filter(value => value.length > 100).map((value) => { return {start: value.shift(), end: value.pop()}})
 
   res.setHeader('Content-Type', 'application/json');
   res.status(status)

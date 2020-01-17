@@ -4,13 +4,14 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "start": "npm run build && node src/server-es5.js",
+    "start": "npm run build && npm run ensure-db-path && node src/server-es5.js",
     "start:universal": "export UNIVERSAL=true && npm run start",
     "start:dev": "export NODE_ENV=development && nodemon -L src/server.js",
     "start:dev:universal": "export NODE_ENV=development && export UNIVERSAL=true && npm run start:dev",
     "build": "NODE_ENV=production webpack -p --profile --display-modules --optimize-minimize",
     "build:dev": "webpack -d",
-    "build:dev:watch": "webpack -d --watch"
+    "build:dev:watch": "webpack -d --watch",
+    "ensure-db-path": "mkdir -p ./data"
   },
   "author": "Ekku",
   "license": "MIT",

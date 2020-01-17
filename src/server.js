@@ -27,7 +27,7 @@ app.use(Express.static(path.join(__dirname, 'static')));
 
 
 var adapter = new lfsa();
-var db = new loki('/data/palju.db', 
+var db = new loki('./data/palju.db',
   {
     autoload: true,
     autoloadCallback : loadHandler,

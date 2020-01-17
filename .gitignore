@@ -62,3 +62,5 @@ typings/
 
 .babel_cache
 src/server-es5.js
+data
+.idea

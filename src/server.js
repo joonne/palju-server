@@ -25,9 +25,8 @@ app.set('views', path.join(__dirname, 'views'));
 // define the folder that will be used for static assets
 app.use(Express.static(path.join(__dirname, 'static')));
 
-
-var adapter = new lfsa();
-var db = new loki('./data/palju.db',
+const adapter = new lfsa();
+const db = new loki('./data/palju.db',
   {
     autoload: true,
     autoloadCallback : loadHandler,
@@ -35,63 +34,74 @@ var db = new loki('./data/palju.db',
     autosaveInterval: 10000, // 10 seconds
     adapter: adapter,
     verbose: true
-  }); 
+  });
 
 function loadHandler() {
   console.log("Load handler")
   // if database did not exist it will be empty so I will intitialize here
-  var coll = db.getCollection('palju');
+  let coll = db.getCollection('palju');
   if (coll === null) {
     coll = db.addCollection('palju');
   }
 }
 
+const SIX_HOURS_IN_SECONDS = 60*60*6;
 
 // Returns the heating instances as an array of hashes containing the start and end timestamps
 // [{start: unix_timestamp, end: unix_timestamp}, ...]
 app.get('/instances', (req, res) => {
-  let markup = '';
-  let status = 200;
-  let paljuData = db.getCollection("palju");
+  const markup = '';
+  const status = 200;
+  const paljuData = db.getCollection('palju');
 
   // Get all data
-  let records = paljuData.chain().find({}).simplesort('timestamp').data();
-  let instances = [];
+  const records = paljuData
+    .chain()
+    .find({})
+    .simplesort('timestamp')
+    .data();
+
+  const instances = [];
   let instance = [];
 
   // Figure out the instances
-  records.map(r => r.timestamp).forEach( (currentValue, index, values) => {
-    if (instance.length > 0){
-      if (currentValue - (60*60*6) < instance[instance.length - 1]){ // Less than 6 hours from last value
+  records
+    .map(r => r.timestamp)
+    .forEach((currentValue) => {
+      if (instance.length > 0) {
+        if ((currentValue - SIX_HOURS_IN_SECONDS) < instance[instance.length - 1]) { // Less than 6 hours from last value
+          instance.push(currentValue);
+        } else { // More than 6 hour, consider as a new instance.
+          instances.push(instance);
+          instance = [currentValue]
+        }
+      } else {
         instance.push(currentValue);
-      } else { // More than 6 hour, consider as a new instance.
-        instances.push(instance);
-        instance = [currentValue]
       }
-    } else {
-      instance.push(currentValue);
-    } 
-  });
-  instances.push(instance);
-  // Remove instances with less than 100 datapoints to remove some test data. 
-  const retval = instances.filter(value => value.length > 100).map((value) => { return {start: value.shift(), end: value.pop()}})
+    });
 
-  res.setHeader('Content-Type', 'application/json');
-  res.status(status)
-  res.send(JSON.stringify(retval));
+  instances.push(instance);
+
+  // Remove instances with less than 100 datapoints to remove some test data.
+  const retval = instances
+    .filter(value => value.length > 100)
+    .map((value) => ({ start: value.shift(), end: value.pop() }));
+
+  return res.status(status).json(retval);
 });
 
 
 // Returns the recorded data between the given timestamps
 app.get('/instances/:after/:before', (req, res) => {
-  let markup = '';
-  let status = 200;
-  let paljuData = db.getCollection("palju");
-  let records = paljuData.chain().find({'timestamp': {'$between': [req.params['after'], req.params['before']]}}).simplesort('timestamp').data();
+  const { after, before } = req.params;
+  const paljuData = db.getCollection('palju');
+  const records = paljuData
+    .chain()
+    .find({'timestamp': {'$between': [after, before]}})
+    .simplesort('timestamp')
+    .data();
 
-  res.setHeader('Content-Type', 'application/json');
-  res.status(status)
-  res.send(JSON.stringify(stripResultsMetadata(records)));
+  return res.status(200).json(stripResultsMetadata(records));
 });
 
 // start the server
@@ -102,19 +112,12 @@ server.listen(port, (err) => {
     return console.error(err);
   }
 
-  
-
-  return console.info(
-    `
-      Server running on http://localhost:${port} [${env}]
-    `);
+  return console.info(`Server running on http://localhost:${port} [${env}]`);
 });
 
-
 wss.on('connection', (ws, req) => {
-
   console.log("Get paljuData")
-  let paljuData = db.getCollection("palju");
+  const paljuData = db.getCollection('palju');
 
   console.log("Connected with: " + req.headers['sec-websocket-protocol'])
   ws.clientType = req.headers['sec-websocket-protocol'];
@@ -127,19 +130,19 @@ wss.on('connection', (ws, req) => {
   const location = url.parse(req.url, true);
 
   // Send the latest record on connection
-  let timeHourAgo = Math.floor(new Date() / 1000) - (60 * 60); // Unix timestamp
-  let records = paljuData.chain().find({'timestamp': {'$gt': timeHourAgo}}).simplesort('timestamp').data();
-  let latestRecord = records.length > 0 ? records.pop() : {}
+  const timeHourAgo = Math.floor(new Date() / 1000) - (60 * 60); // Unix timestamp
+  const records = paljuData.chain().find({'timestamp': {'$gt': timeHourAgo}}).simplesort('timestamp').data();
+  const latestRecord = records.length > 0 ? records.pop() : {};
   ws.send(JSON.stringify(stripResultsMetadata(latestRecord)));
 
   ws.on('message', function incoming(message) {
-    console.log('received: %s', message);
+    console.log(`received: ${message}`);
 
     // Parse data
-    let data = JSON.parse(message)
-    console.log(data.temp_low != null)
+    const data = JSON.parse(message);
+    console.log(data.temp_low != null);
     if (data.temp_low != null) {
-      let timeNow = Math.floor(new Date() / 1000); // Unix timestamp
+      const timeNow = Math.floor(new Date() / 1000); // Unix timestamp
 
       const values = {
         temp_low: parseFloat(data.temp_low), 
@@ -150,22 +153,22 @@ wss.on('connection', (ws, req) => {
         low_limit: parseFloat(data.low_limit),
         timestamp: timeNow, 
         estimation: ((parseFloat(data.target) - parseFloat(data.temp_high)) / 10 * 60 * 60) + timeNow // 10 degrees in a hour
-      }
+      };
 
-      if (ws.clientType != 'mobile'){
+      if (ws.clientType !== 'mobile'){
         paljuData.insert(values);
       }
       
-      console.log("Sending to all clients")
+      console.log("Sending to all clients");
       wss.clients.forEach(function each(client) {
-        console.log("Should we send to client:" + client.clientType)
+        console.log(`Should we send to client: ${client.clientType}`);
         
         if ( client.readyState === WebSocket.OPEN && client !== ws /* to exclude the sender*/ ) {
-          console.log("Not self & is open")
+          console.log("Not self & is open");
           // Sender is mobile-app, or receiver is mobile app
-          if (ws.clientType == 'mobile' || client.clientType == 'mobile' ) {
-            console.log("Client is mobile or receiver is mobile")
-            console.log("Sending to:" + client.clientType)
+          if (ws.clientType === 'mobile' || client.clientType === 'mobile' ) {
+            console.log("Client is mobile or receiver is mobile");
+            console.log("Sending to:" + client.clientType);
 
             client.send(JSON.stringify(stripResultsMetadata(values)));
           }
@@ -184,22 +187,19 @@ wss.on('connection', (ws, req) => {
 
 // Ping connections every 30 seconds to keep them alive
 setInterval(() => {
-    wss.clients.forEach((ws: ExtWebSocket) => {
-        
-        if (ws.isAlive == false){
-         console.log("KILLING WEBSOCKET CONNECTION")
-         return ws.terminate();
-       }
-        
-        ws.isAlive = false;
-        ws.ping(() => {});
-    });
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false){
+     console.log("KILLING WEBSOCKET CONNECTION");
+     return ws.terminate();
+   }
+
+    ws.isAlive = false;
+    ws.ping(() => {});
+  });
 }, 10000);
 
-
 // Function to remove the meta data created by the lokijs from the responses
-export function stripResultsMetadata( results ) {
-
+export function stripResultsMetadata(results) {
   const isArray = Array.isArray(results); // Check whether array was provided
   
   if(!isArray) results = [results]; // Convert to array
@@ -207,10 +207,10 @@ export function stripResultsMetadata( results ) {
   const records = [];
   
 	for (var idx = 0; idx < results.length; idx++) {
-		const loki_rec = results[ idx ]
-		const clean_rec = Object.assign({}, loki_rec)
-		delete clean_rec['meta']
-		delete clean_rec['$loki']
+		const loki_rec = results[ idx ];
+		const clean_rec = Object.assign({}, loki_rec);
+		delete clean_rec['meta'];
+		delete clean_rec['$loki'];
 		records.push( clean_rec )
 	}
 	return isArray ? records : records.pop(); // Convert to initial

@@ -25,46 +25,56 @@ app.set('views', path.join(__dirname, 'views'));
 // define the folder that will be used for static assets
 app.use(Express.static(path.join(__dirname, 'static')));
 
-const adapter = new lfsa();
-const db = new loki('./data/palju.db',
-  {
-    autoload: true,
-    autoloadCallback : loadHandler,
-    autosave: true, 
-    autosaveInterval: 10000, // 10 seconds
-    adapter: adapter,
-    verbose: true
-  });
+const { Pool } = require('pg');
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  user: process.env.DATABASE_USER || 'postgres',
+  password: 'mysecretpassword',
+  database: 'palju',
+  ssl: process.env.NODE_ENV === 'production'
+});
 
-function loadHandler() {
-  console.log("Load handler")
-  // if database did not exist it will be empty so I will intitialize here
-  let coll = db.getCollection('palju');
-  if (coll === null) {
-    coll = db.addCollection('palju');
+const getTest = (timestamp) => JSON.stringify({
+  temp_low: parseFloat('36.5'),
+  temp_high: parseFloat('40.2'),
+  temp_ambient: parseFloat('16.3'),
+  warming_phase: 'ON',
+  target: parseFloat('45.3'),
+  low_limit: parseFloat('33.3'),
+  timestamp,
+  get estimation() { return ((parseFloat(this.target) - parseFloat(this.temp_high)) / 10 * 60 * 60) + Math.floor(new Date() / 1000); }
+});
+
+(async () => {
+  try {
+    const client = await pool.connect();
+    await client.query('DROP TABLE instance;');
+    await client.query(`CREATE TABLE IF NOT EXISTS instance (id SERIAL PRIMARY KEY, timestamp integer, values jsonb DEFAULT '[{}]');`);
+    await client.query(`DELETE FROM instance;`);
+    await client.query(`
+      INSERT INTO instance (values)
+      VALUES ('[${getTest(1)}, ${getTest(2)}, ${getTest(3)}]')
+    `);
+  } catch (error) {
+    console.error(error.stack);
+    process.exit(1);
   }
-}
+})();
 
-const SIX_HOURS_IN_SECONDS = 60*60*6;
+const SIX_HOURS_IN_SECONDS = 60 * 60 * 6;
 
 // Returns the heating instances as an array of hashes containing the start and end timestamps
 // [{start: unix_timestamp, end: unix_timestamp}, ...]
-app.get('/instances', (req, res) => {
-  const markup = '';
-  const status = 200;
-  const paljuData = db.getCollection('palju');
+app.get('/instances', async (req, res) => {
+  const client = await pool.connect();
+  const result = await client.query(`SELECT values FROM instance;`);
+  const records = result.rows || [];
 
-  // Get all data
-  const records = paljuData
-    .chain()
-    .find({})
-    .simplesort('timestamp')
-    .data();
+  return res.json(records);
 
   const instances = [];
   let instance = [];
 
-  // Figure out the instances
   records
     .map(r => r.timestamp)
     .forEach((currentValue) => {
@@ -73,7 +83,7 @@ app.get('/instances', (req, res) => {
           instance.push(currentValue);
         } else { // More than 6 hour, consider as a new instance.
           instances.push(instance);
-          instance = [currentValue]
+          instance = [currentValue];
         }
       } else {
         instance.push(currentValue);
@@ -87,24 +97,23 @@ app.get('/instances', (req, res) => {
     .filter(value => value.length > 100)
     .map((value) => ({ start: value.shift(), end: value.pop() }));
 
-  return res.status(status).json(retval);
+  return res.status(200).json(retval);
 });
 
-
-// Returns the recorded data between the given timestamps
-app.get('/instances/:after/:before', (req, res) => {
+app.get('/instances/:after/:before', async (req, res) => {
   const { after, before } = req.params;
-  const paljuData = db.getCollection('palju');
-  const records = paljuData
-    .chain()
-    .find({'timestamp': {'$between': [after, before]}})
-    .simplesort('timestamp')
-    .data();
+  const client = await pool.connect();
+  const records = await client.query(`
+    SELECT values
+    FROM instance i
+    CROSS JOIN LATERAL jsonb_array_elements ( values ) as j
+    WHERE (j->>'timestamp')::int BETWEEN ${after} AND ${before}
+    ORDER BY j->>'timestamp' ASC
+  `);
 
-  return res.status(200).json(stripResultsMetadata(records));
+  return res.status(200).json(records);
 });
 
-// start the server
 const port = process.env.PORT || 3000;
 const env = process.env.NODE_ENV || 'production';
 server.listen(port, (err) => {
@@ -115,36 +124,44 @@ server.listen(port, (err) => {
   return console.info(`Server running on http://localhost:${port} [${env}]`);
 });
 
-wss.on('connection', (ws, req) => {
-  console.log("Get paljuData")
-  const paljuData = db.getCollection('palju');
-
-  console.log("Connected with: " + req.headers['sec-websocket-protocol'])
+wss.on('connection', async (ws, req) => {
+  console.log("Connected with: " + req.headers['sec-websocket-protocol']);
   ws.clientType = req.headers['sec-websocket-protocol'];
 
   ws.isAlive = true;
-  ws.on('pong', function(){
+  ws.on('pong', function() {
     this.isAlive = true;
   });
 
-  const location = url.parse(req.url, true);
+  const client = await pool.connect();
 
   // Send the latest record on connection
-  const timeHourAgo = Math.floor(new Date() / 1000) - (60 * 60); // Unix timestamp
-  const records = paljuData.chain().find({'timestamp': {'$gt': timeHourAgo}}).simplesort('timestamp').data();
+  const timeHourAgo = Math.floor(new Date() / 1000) - (60 * 60);
+  const records = await client.query(`
+    SELECT values
+    FROM instance
+    WHERE (values->>'timestamp')::int >= ${timeHourAgo}
+    ORDER BY values->>'timestamp' ASC
+  `);
   const latestRecord = records.length > 0 ? records.pop() : {};
-  ws.send(JSON.stringify(stripResultsMetadata(latestRecord)));
+  ws.send(JSON.stringify(latestRecord));
 
-  ws.on('message', function incoming(message) {
+  ws.on('message', async (message) => {
     console.log(`received: ${message}`);
 
-    // Parse data
-    const data = JSON.parse(message);
-    console.log(data.temp_low != null);
-    if (data.temp_low != null) {
+    let data;
+
+    try {
+      data = JSON.parse(message);
+    } catch (error) {
+      console.error(error.stack);
+      data = {}
+    }
+
+    if (data.temp_low !== null) {
       const timeNow = Math.floor(new Date() / 1000); // Unix timestamp
 
-      const values = {
+      const values = JSON.stringify({
         temp_low: parseFloat(data.temp_low), 
         temp_high: parseFloat(data.temp_high),
         temp_ambient: parseFloat(data.temp_ambient),
@@ -153,35 +170,33 @@ wss.on('connection', (ws, req) => {
         low_limit: parseFloat(data.low_limit),
         timestamp: timeNow, 
         estimation: ((parseFloat(data.target) - parseFloat(data.temp_high)) / 10 * 60 * 60) + timeNow // 10 degrees in a hour
-      };
+      });
 
-      if (ws.clientType !== 'mobile'){
-        paljuData.insert(values);
+      if (ws.clientType !== 'mobile') {
+        await client.query(`
+          INSERT INTO instance (values)
+          VALUES ('${values}')
+        `);
       }
-      
-      console.log("Sending to all clients");
-      wss.clients.forEach(function each(client) {
-        console.log(`Should we send to client: ${client.clientType}`);
-        
-        if ( client.readyState === WebSocket.OPEN && client !== ws /* to exclude the sender*/ ) {
-          console.log("Not self & is open");
-          // Sender is mobile-app, or receiver is mobile app
-          if (ws.clientType === 'mobile' || client.clientType === 'mobile' ) {
-            console.log("Client is mobile or receiver is mobile");
-            console.log("Sending to:" + client.clientType);
 
-            client.send(JSON.stringify(stripResultsMetadata(values)));
+      wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN && client !== ws) {
+          if (ws.clientType === 'mobile' || client.clientType === 'mobile' ) {
+            client.send(values);
           }
         }
       });
-    } else if (data.from != null) {
-      // Send the latest 50
-    //data.find({}).sort({timestamp: 1}).limit(50).exec( (err, docs) => {
-    //    ws.send(JSON.stringify(docs))
-    //  })
+    } else if (data.from !== null) {
+      const records = await client.query(`
+         SELECT values 
+         FROM instance
+         ORDER BY values->'timestamp' ASC
+         LIMIT 50;
+      `);
+
+      return ws.send(JSON.stringify(records.rows));
     }
   });
-
 });
 
 
@@ -197,21 +212,3 @@ setInterval(() => {
     ws.ping(() => {});
   });
 }, 10000);
-
-// Function to remove the meta data created by the lokijs from the responses
-export function stripResultsMetadata(results) {
-  const isArray = Array.isArray(results); // Check whether array was provided
-  
-  if(!isArray) results = [results]; // Convert to array
-
-  const records = [];
-  
-	for (var idx = 0; idx < results.length; idx++) {
-		const loki_rec = results[ idx ];
-		const clean_rec = Object.assign({}, loki_rec);
-		delete clean_rec['meta'];
-		delete clean_rec['$loki'];
-		records.push( clean_rec )
-	}
-	return isArray ? records : records.pop(); // Convert to initial
-}
